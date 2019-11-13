@@ -1,11 +1,10 @@
 #include <iostream>
 #include <functional>
 #include <thread>
-#include "conc_queue.h"
-#include "ports.h"
-#include "module.h"
-#include "env.h"
 
+#include "ev_sys.h"
+
+using namespace ev_sys;
 class sender:public module{
 public:
 	initiator_port p1;

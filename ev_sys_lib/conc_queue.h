@@ -5,6 +5,7 @@
 #include <atomic>
 #include <initializer_list>
 
+namespace ev_sys{
 template<typename T>
 class conc_queue{
 	std::queue<T> q;
@@ -119,3 +120,4 @@ public:
 		return force_exit;
 	}
 };
+}//namespace ev_sys

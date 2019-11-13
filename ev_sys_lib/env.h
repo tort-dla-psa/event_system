@@ -4,6 +4,7 @@
 #include "module.h"
 #include "ports.h"
 
+namespace ev_sys{
 class env{
 	std::vector<std::unique_ptr<module>> modules;
 public:
@@ -43,3 +44,4 @@ public:
         }
 	}
 };
+}//namespace ev_sys

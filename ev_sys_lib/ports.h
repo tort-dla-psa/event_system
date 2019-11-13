@@ -3,6 +3,7 @@
 #include "conc_queue.h"
 #include "env_obj.h"
 
+namespace ev_sys{
 struct payload{
 	std::string src;
 	std::vector<uint8_t> data;
@@ -86,3 +87,4 @@ public:
 		return (q && q->exit_requested());
 	}
 };
+}//namespace ev_sys
