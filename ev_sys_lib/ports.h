@@ -41,7 +41,9 @@ protected:
 public:
 	port(const std::string &name)
 		:env_obj(name)
-	{}
+	{
+		T::m_ports.emplace_back(this);
+	}
 	virtual ~port(){}
 
 	size_t get_queue_size(){
@@ -53,6 +55,8 @@ public:
 			(this->get_queue_size() == 0) &&
 			q->exit_requested());
 	}
+
+	virtual void stop()=0;
 };
 
 template<typename T>
@@ -66,7 +70,7 @@ public:
 		stop();
 	}
 
-	void stop(){
+	void stop()override{
 		this->clear_queue();
 	}
 
@@ -92,7 +96,7 @@ public:
 		stop();
 	}
 
-	void stop(){
+	void stop()override{
 		this->clear_queue();
 		if(thr.joinable()){
 			thr.join();

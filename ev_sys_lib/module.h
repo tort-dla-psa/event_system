@@ -20,8 +20,8 @@ public:
 template<typename T>
 class module:public module_interface{
 private:
-	const std::string name;
-	static std::vector<port<T>*> ports;
+	friend class port<T>;
+	static std::vector<port<T>*> m_ports;
 protected:
 	module(const std::string &name)
 		:module_interface(name)
@@ -31,9 +31,24 @@ public:
 	module(const module &rhs) = delete;
 	module(module &&rhs) = delete;
 	virtual ~module(){};
+
+	virtual void start(){
+		for(auto p:m_ports){
+			auto cast = dynamic_cast<target_port<T>*>(p);
+			if(cast){
+				cast->start();
+			}
+		}
+	};
+
+	virtual void stop(){
+		for(auto p:m_ports){
+			p->stop();
+		}
+	};
 };
 
 template<typename T>
-std::vector<port<T>*> module<T>::ports;
+std::vector<port<T>*> module<T>::m_ports;
 
 }//namespace ev_sys

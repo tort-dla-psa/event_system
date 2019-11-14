@@ -108,11 +108,6 @@ public:
 		std::cout<<"\n";
 	}
 
-	void start()override{
-		t1.start();
-		from_finalizer.start();
-	}
-
 	void stop()override{
 		t1.stop();
 	}
@@ -120,7 +115,7 @@ public:
 
 class multi_getter:public module<multi_getter>{
 public:
-	std::vector<std::unique_ptr<target_port<multi_getter>>> ports;
+	std::vector<std::unique_ptr<target_port<multi_getter>>> in_ports;
 	target_port<multi_getter> from_finalizer;
 	initiator_port<multi_getter> to_finalizer;
 
@@ -129,7 +124,7 @@ public:
 		from_finalizer("from_finalizer"),
 		to_finalizer("to_finalizer")
 	{
-		ports.reserve(size);
+		in_ports.reserve(size);
 		for(size_t i=0; i<size; i++){
 			auto name = std::string("in_port")+std::to_string(i);
 			auto port = std::make_unique<target_port<multi_getter>>(std::move(name));
@@ -137,12 +132,12 @@ public:
 				func(std::move(pl));
 			};
 			port->set_func(lambda);
-			ports.emplace_back(std::move(port));
+			in_ports.emplace_back(std::move(port));
 		}
 
 		from_finalizer.set_func([this](std::unique_ptr<payload> &&pl){
 			bool ended = true;
-			for(auto &p:ports){
+			for(auto &p:in_ports){
 				ended &= p->ended();
 			}
 			auto pl_cast = std::dynamic_pointer_cast<my_payload>(pl->data);
@@ -162,19 +157,6 @@ public:
 			std::cout<<itm<<" ";
 		}
 		std::cout<<"\n";
-	}
-
-	void start()override{
-		for(auto &p:ports){
-			p->start();
-		}
-		from_finalizer.start();
-	}
-
-	void stop()override{
-		for(auto &p:ports){
-			p->stop();
-		}
 	}
 };
 
@@ -251,7 +233,7 @@ void test_many_to_one(){
 	}
 	auto mul_get = std::make_unique<multi_getter>(size);
 	for(size_t i=0; i<size; i++){
-		e.tie(senders[i]->p1, mul_get->ports[i]);
+		e.tie(senders[i]->p1, mul_get->in_ports[i]);
 		e.add_module(std::move(senders[i]));
 	}
 	auto finlzr = std::make_unique<finalizer>();
