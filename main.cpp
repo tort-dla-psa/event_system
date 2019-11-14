@@ -5,9 +5,24 @@
 #include "ev_sys.h"
 
 using namespace ev_sys;
-class sender:public module{
+
+class my_payload:public payload_data_holder{
 public:
-	initiator_port p1;
+	std::string src;
+	std::vector<uint8_t> data;
+};
+
+class sender:public module<sender>{
+	std::unique_ptr<payload> make_pl(std::vector<uint8_t> &&data){
+		auto my_pl = std::make_shared<my_payload>();
+		my_pl->src = get_name();
+		my_pl->data = std::move(data);
+		auto pl = std::make_unique<payload>();
+		pl->data = my_pl;
+		return std::move(pl);
+	}
+public:
+	initiator_port<sender> p1;
 	std::thread thr;
 
 	sender(const std::string &name)
@@ -23,16 +38,12 @@ public:
 		thr = std::thread([this](){
 			size_t i=0;
 			std::string data = "hello";
-			while(i<5){
-				auto pl = std::make_shared<payload>();
-				pl->src = get_name();
-				pl->data = {(uint8_t)data[i]};
+			while(i<data.size()){
+				auto pl = make_pl({(uint8_t)data[i]});
 				p1.send(std::move(pl));
 				i++;
 			}
-			auto pl = std::make_shared<payload>();
-			pl->src = get_name();
-			pl->data = std::vector<uint8_t>(data.data(), data.data()+data.size());
+			auto pl = make_pl(std::vector<uint8_t>(data.data(), data.data()+data.size()));
 			p1.send(std::move(pl));
 			while(p1.get_queue_size() != 0){
 				std::this_thread::sleep_for(std::chrono::milliseconds(5));
@@ -50,11 +61,19 @@ public:
 	}
 };
 
-class getter:public module{
+class getter:public module<getter>{
+	std::unique_ptr<payload> make_pl(std::vector<uint8_t> &&data){
+		auto my_pl = std::make_shared<my_payload>();
+		my_pl->src = get_name();
+		my_pl->data = std::move(data);
+		auto pl = std::make_unique<payload>();
+		pl->data = my_pl;
+		return std::move(pl);
+	}
 public:
-	target_port t1;
-	target_port from_finalizer;
-	initiator_port to_finalizer;
+	target_port<getter> t1;
+	target_port<getter> from_finalizer;
+	initiator_port<getter> to_finalizer;
 
 	getter(const std::string &name)
 		:module(name),
@@ -62,23 +81,28 @@ public:
 		from_finalizer("from_finalizer"),
 		to_finalizer("to_finalizer")
 	{
-		t1.set_func([this](std::shared_ptr<payload> pl){
+		t1.set_func([this](std::unique_ptr<payload> &&pl){
 			func(std::move(pl));
 		});
 
-		from_finalizer.set_func([this](std::shared_ptr<payload> pl){
-			if(t1.ended()){
-				pl->data.at(0) = 0x01;
-			}else{
-				pl->data.at(0) = 0x00;
+		from_finalizer.set_func([this](std::unique_ptr<payload> &&pl){
+			auto data = std::dynamic_pointer_cast<my_payload>(pl->data);
+			if(!data){
+				return;
 			}
-			to_finalizer.send(pl);
+			if(t1.ended()){
+				data->data.at(0) = 0x01;
+			}else{
+				data->data.at(0) = 0x00;
+			}
+			to_finalizer.send(std::move(pl));
 		});
 	}
 
-	void func(std::shared_ptr<payload> pl){
-		std::cout<<get_name()<<", from "<<pl->src<<":";
-		for(auto &itm:pl->data){
+	void func(std::unique_ptr<payload> &&pl){
+		auto data = std::dynamic_pointer_cast<my_payload>(pl->data);
+		std::cout<<get_name()<<", from "<<data->src<<":";
+		for(auto &itm:data->data){
 			std::cout<<itm<<" ";
 		}
 		std::cout<<"\n";
@@ -94,11 +118,11 @@ public:
 	}
 };
 
-class multi_getter:public module{
+class multi_getter:public module<multi_getter>{
 public:
-	std::vector<std::unique_ptr<target_port>> ports;
-	target_port from_finalizer;
-	initiator_port to_finalizer;
+	std::vector<std::unique_ptr<target_port<multi_getter>>> ports;
+	target_port<multi_getter> from_finalizer;
+	initiator_port<multi_getter> to_finalizer;
 
 	multi_getter(size_t size)
 		:module("mutli_getter"),
@@ -108,31 +132,33 @@ public:
 		ports.reserve(size);
 		for(size_t i=0; i<size; i++){
 			auto name = std::string("in_port")+std::to_string(i);
-			auto port = std::make_unique<target_port>(std::move(name));
-			auto lambda = [this](std::shared_ptr<payload> pl){
+			auto port = std::make_unique<target_port<multi_getter>>(std::move(name));
+			auto lambda = [this](std::unique_ptr<payload> &&pl){
 				func(std::move(pl));
 			};
 			port->set_func(lambda);
 			ports.emplace_back(std::move(port));
 		}
 
-		from_finalizer.set_func([this](std::shared_ptr<payload> pl){
+		from_finalizer.set_func([this](std::unique_ptr<payload> &&pl){
 			bool ended = true;
 			for(auto &p:ports){
 				ended &= p->ended();
 			}
+			auto pl_cast = std::dynamic_pointer_cast<my_payload>(pl->data);
 			if(ended){
-				pl->data.at(0) = 0x01;
+				pl_cast->data.at(0) = 0x01;
 			}else{
-				pl->data.at(0) = 0x00;
+				pl_cast->data.at(0) = 0x00;
 			}
 			to_finalizer.send(std::move(pl));
 		});
 	}
 
-	void func(std::shared_ptr<payload> pl){
-		std::cout<<get_name()<<", from "<<pl->src<<":";
-		for(auto &itm:pl->data){
+	void func(std::unique_ptr<payload> &&pl){
+		auto pl_cast = std::dynamic_pointer_cast<my_payload>(pl->data);
+		std::cout<<get_name()<<", from "<<pl_cast->src<<":";
+		for(auto &itm:pl_cast->data){
 			std::cout<<itm<<" ";
 		}
 		std::cout<<"\n";
@@ -152,19 +178,32 @@ public:
 	}
 };
 
-class finalizer:public module{
+class finalizer:public module<finalizer>{
 	std::atomic_bool ended;
+
+	std::unique_ptr<payload> make_pl(std::vector<uint8_t> &&data){
+		auto my_pl = std::make_shared<my_payload>();
+		my_pl->src = get_name();
+		my_pl->data = std::move(data);
+		auto pl = std::make_unique<payload>();
+		pl->data = my_pl;
+		return std::move(pl);
+	}
 public:
-	initiator_port to_getter;
-	target_port from_getter;
+	initiator_port<finalizer> to_getter;
+	target_port<finalizer> from_getter;
 
 	finalizer()
 		:module("finalizer"),
 		to_getter("to_getter"),
 		from_getter("from_getter")
 	{
-		from_getter.set_func([this](std::shared_ptr<payload> pl){
-			if(pl->data.at(0) == 0x01){
+		from_getter.set_func([this](std::unique_ptr<payload> &&pl){
+			auto pl_cast = std::dynamic_pointer_cast<my_payload>(pl->data);
+			if(!pl_cast){
+				throw std::runtime_error("wrong payload");
+			}
+			if(pl_cast->data.at(0) == 0x01){
 				this->ended = true;
 			}else{
 				this->ended = false;
@@ -176,8 +215,7 @@ public:
 		ended = false;
 		from_getter.start();
 		do{
-			auto pl = std::make_shared<payload>();
-			pl->data = {0x00};
+			auto pl = make_pl({0x00});
 			to_getter.send(std::move(pl));
 			std::this_thread::sleep_for(std::chrono::milliseconds(5));
 		}while(!ended);

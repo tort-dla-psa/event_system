@@ -5,30 +5,39 @@
 #include "ports.h"
 
 namespace ev_sys{
+
 class env{
-	std::vector<std::unique_ptr<module>> modules;
+	std::vector<std::unique_ptr<module_interface>> modules;
 public:
-	env(){};
+	env(){}
 	env(const env &e) = delete;
 	env(env &&e) = delete;
 
-	void add_module(std::unique_ptr<module> &&mdl){
+	void add_module(std::unique_ptr<module_interface> mdl){
 		modules.emplace_back(std::move(mdl));
 	}
 
-	void tie(initiator_port &p1, target_port &t1){
+	template<class c1, class c2>
+	void tie(initiator_port<c1> &p1, target_port<c2> &t1){
+		p1.q = std::make_shared<conc_queue<std::unique_ptr<payload>>>();
 		t1.q = p1.q;
 	}
 
-	void tie(initiator_port &p1, std::unique_ptr<target_port> &t1){
+	template<class c1, class c2>
+	void tie(initiator_port<c1> &p1, std::unique_ptr<target_port<c2>> &t1){
+		p1.q = std::make_shared<conc_queue<std::unique_ptr<payload>>>();
 		t1->q = p1.q;
 	}
 
-	void tie(std::unique_ptr<initiator_port> &p1, target_port &t1){
+	template<class c1, class c2>
+	void tie(std::unique_ptr<initiator_port<c1>> &p1, target_port<c2> &t1){
+		p1->q = std::make_shared<conc_queue<std::unique_ptr<payload>>>();
 		t1.q = p1->q;
 	}
 
-	void tie(std::unique_ptr<initiator_port> &p1, std::unique_ptr<target_port> &t1){
+	template<class c1, class c2>
+	void tie(std::unique_ptr<initiator_port<c1>> &p1, std::unique_ptr<target_port<c2>> &t1){
+		p1->q = std::make_shared<conc_queue<std::unique_ptr<payload>>>();
 		t1->q = p1->q;
 	}
 	

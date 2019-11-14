@@ -45,7 +45,7 @@ public:
 		force_exit = false;
 		{
 			std::unique_lock<std::mutex> lk(m);
-			q.emplace(data);
+			q.emplace(std::move(data));
 		}
 		cv.notify_one();
 	}
@@ -76,7 +76,7 @@ public:
 		if(force_exit || q.empty()){
 			return false;
 		}
-		data = q.front();
+		data = std::move(q.front());
 		q.pop();
 		return true;
 	}
@@ -89,7 +89,7 @@ public:
 		if(force_exit || q.empty()){
 			return false;
 		}
-		data = q.front();
+		data = std::move(q.front());
 		q.pop();
 		return true;
 	}
@@ -102,7 +102,7 @@ public:
 		if(force_exit || q.empty()){
 			return false;
 		}
-		data = q.front();
+		data = std::move(q.front());
 		q.pop();
 		return true;
 	}
