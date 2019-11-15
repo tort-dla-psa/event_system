@@ -6,21 +6,16 @@ jobs:
   build:
 
     runs-on: ubuntu-latest
-    
+    strategy:
+      matrix:
+        path: ['examples/listeners_senders', 'examples/kinda_system', 'examples/highload_system']
+
     steps:
     - uses: actions/checkout@v1
     - name: Install Dependencies
       run: sudo apt install cmake
-    - name: cmake test
-      working-directory: examples/listeners_senders
-      run: |
-        mkdir build
-        cd build
-        sudo cmake ..
-        sudo make
-        cd ..
-    - name: cmake sys
-      working-directory: examples/kinda_system
+    - name: cmake ${{ matrix.path }}
+      working-directory: ${{ matrix.path }}
       run: |
         mkdir build
         cd build
