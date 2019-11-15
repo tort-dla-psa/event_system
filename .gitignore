@@ -1,3 +1,5 @@
 .vscode/
 build
 ev_sys_lib/CMakeLists.txt
+kinda_system/a.out
+kinda_system/build
