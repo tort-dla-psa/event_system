@@ -12,8 +12,17 @@ jobs:
     - name: Install Dependencies
       run: sudo apt install cmake
     - name: сmake test
-      run: mkdir build && cd build && сmake .. && make && cd ..
+      run: |
+        mkdir build 
+        cd build
+        sudo сmake .. 
+        sudo make 
+        cd ..
     - name: cd sys
       run: cd kinda_system
     - name: сmake sys
-      run: mkdir build && cd build && сmake .. && make && cd ..
+      run: |
+        mkdir build
+        cd build
+        sudo сmake .. 
+        sudo make
