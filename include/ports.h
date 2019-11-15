@@ -86,6 +86,7 @@ class target_port:public port<T>{
 	std::function<void(std::unique_ptr<payload>&&)> func;
 	std::thread thr;
 	std::chrono::milliseconds retry_time;
+	std::atomic_bool _processing;
 public:
 	target_port(const std::string &name)
 		:port<T>(name)
@@ -122,9 +123,15 @@ public:
 				if(!this->get_payload(pl)){
 					break;
 				}
+				_processing = true;
 				func(std::move(pl));
+				_processing = false;
 			}
 		});
+	}
+
+	bool processing(){
+		return _processing.load();
 	}
 
 };
