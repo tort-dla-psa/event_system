@@ -12,6 +12,7 @@ jobs:
     - name: Install Dependencies
       run: sudo apt install cmake
     - name: cmake test
+      working-directory: examples/listeners_senders
       run: |
         mkdir build
         cd build
@@ -19,7 +20,7 @@ jobs:
         sudo make
         cd ..
     - name: cmake sys
-      working-directory: kinda_system
+      working-directory: examples/kinda_system
       run: |
         mkdir build
         cd build
