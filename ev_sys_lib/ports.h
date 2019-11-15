@@ -1,5 +1,6 @@
 #pragma once
 #include <memory>
+#include <functional>
 #include "conc_queue.h"
 #include "env_obj.h"
 
@@ -96,7 +97,7 @@ public:
 		stop();
 	}
 
-	void stop()override{
+	void stop(){
 		this->clear_queue();
 		if(thr.joinable()){
 			thr.join();
