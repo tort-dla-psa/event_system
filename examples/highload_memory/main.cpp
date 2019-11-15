@@ -7,7 +7,7 @@
 #include <iostream>
 #include <random>
 #include <iomanip>
-#include "../../include/ev_sys.h"
+#include "ev_sys.h"
 
 using namespace ev_sys;
 

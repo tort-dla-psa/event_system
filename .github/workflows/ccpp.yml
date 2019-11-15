@@ -8,7 +8,7 @@ jobs:
     runs-on: ubuntu-latest
     strategy:
       matrix:
-        path: ['examples/listeners_senders', 'examples/kinda_system', 'examples/highload_system']
+        path: ['examples/listeners_senders', 'examples/kinda_system', 'examples/highload_memory']
 
     steps:
     - uses: actions/checkout@v1
