@@ -10,7 +10,7 @@ jobs:
     steps:
     - uses: actions/checkout@v1
     - name: Install Dependencies
-      run: apt install cmake
+      run: sudo apt install cmake
     - name: сmake test
       run: mkdir build && cd build && сmake .. && make && cd ..
     - name: cd sys
