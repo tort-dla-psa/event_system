@@ -11,12 +11,18 @@ jobs:
     - uses: actions/checkout@v1
     - name: Install Dependencies
       run: sudo apt install cmake
-    - name: сmake test
+    - name: cmake test
       run: |
-        sudo сmake .
+        mkdir build
+        cd build
+        sudo cmake ..
         sudo make
-    - name: сmake sys
+        cd ..
+    - name: cmake sys
       working-directory: kinda_system
       run: |
-        sudo сmake .
+        mkdir build
+        cd build
+        sudo cmake ..
         sudo make
+        cd ..
