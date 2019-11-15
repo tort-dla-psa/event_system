@@ -54,18 +54,16 @@ class unit:public module<unit>{
 	std::thread send_thr;
 	output_filter &fl;
 public:
-	target_port<unit> from_mem;
-	initiator_port<unit> to_mem;
+	dual_port<unit> mem_dp;
 	std::queue<std::shared_ptr<my_payload>> data;
 
 	unit(const std::string &name,
 		output_filter &fl)
 		:module(name),
 		fl(fl),
-		to_mem("to_mem"),
-		from_mem("from_mem")
+		mem_dp("mem_dp")
 	{
-		from_mem.set_func([this, &fl](std::unique_ptr<payload> &&pl){
+		mem_dp.set_func([this, &fl](std::unique_ptr<payload> &&pl){
 			auto data = std::dynamic_pointer_cast<my_payload>(pl->data);
 			fl.print("got data\n");
 			if(!data){
@@ -87,37 +85,29 @@ public:
 				auto pl = std::make_unique<payload>();
 				auto custom_pl = std::move(data.front());
 				pl->data = custom_pl;
-				to_mem.send(std::move(pl));
+				mem_dp.send(std::move(pl));
 				data.pop();
 				std::this_thread::sleep_for(std::chrono::milliseconds(1));
 			}
 		});
-		from_mem.start();
+		mem_dp.start();
 	}
 };
 
 class memory:public module<memory>{
 	std::vector<uint8_t> mem;
 public:
-	std::vector<std::unique_ptr<target_port<memory>>> from_unit;
-	std::vector<std::unique_ptr<initiator_port<memory>>> to_unit;
+	std::vector<std::unique_ptr<dual_port<memory>>> unit_dps;
 	output_filter &fl;
 
 	memory(const std::string &name, size_t bytes, size_t ports, output_filter &fl)
 		:module(name),
 		fl(fl)
 	{
-		to_unit.reserve(ports);
 		for(size_t i=0; i<ports; i++){
-			auto name = std::string("to_unit")+std::to_string(i);
-			to_unit.emplace_back(new initiator_port<memory>(std::move(name)));
-		}
-
-		from_unit.reserve(ports);
-		for(size_t i=0; i<ports; i++){
-			auto name = std::string("from_unit")+std::to_string(i);
-			from_unit.emplace_back(new target_port<memory>(std::move(name)));
-			from_unit.back()->set_func([this, &fl, i](std::unique_ptr<payload> &&pl){
+			auto name = std::string("unit_dp")+std::to_string(i);
+			unit_dps.emplace_back(new dual_port<memory>(std::move(name)));
+			unit_dps.back()->set_func([this, &fl, i](std::unique_ptr<payload> &&pl){
 				auto pl_cast = std::dynamic_pointer_cast<my_payload>(pl->data);
 				if(!pl_cast){
 					return;
@@ -132,7 +122,7 @@ public:
 						" len="+std::to_string(len)+"\n";
 					fl.print(std::move(str));
 					std::copy(mem.begin()+addr, mem.begin()+addr+len, pl_cast->data.begin());
-					to_unit.at(i)->send(std::move(pl));
+					unit_dps.at(i)->send(std::move(pl));
 				}else{
 					std::string str = "writing addr="+std::to_string(addr)+"\n";
 					fl.print(std::move(str));
@@ -176,10 +166,8 @@ int main(){
 		cmds.emplace_back(new my_payload(my_payload::read, 4, std::move(std::vector<uint8_t>(8))));
 		u2->data = gen_data(std::move(cmds));
 	}
-	e.tie(mem->to_unit[0], u1->from_mem);
-	e.tie(u1->to_mem, mem->from_unit[0]);
-	e.tie(mem->to_unit[1], u2->from_mem);
-	e.tie(u2->to_mem, mem->from_unit[1]);
+	e.tie(mem->unit_dps[0], u1->mem_dp);
+	e.tie(mem->unit_dps[1], u2->mem_dp);
 	e.add_module(std::move(mem));
 	e.add_module(std::move(u1));
 	e.add_module(std::move(u2));

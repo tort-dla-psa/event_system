@@ -69,22 +69,17 @@ class unit:public module<unit>{
 	std::thread send_thr;
 	output_filter &fl;
 public:
-	target_port<unit> from_mem;
-	initiator_port<unit> to_mem;
-	target_port<unit> from_finalizer;
-	initiator_port<unit> to_finalizer;
+	dual_port<unit> mem_dp, finalizer_dp;
 	std::queue<std::unique_ptr<payload>> data;
 
 	unit(const std::string &name,
 		output_filter &fl)
 		:module(name),
 		fl(fl),
-		to_mem("to_mem"),
-		from_mem("from_mem"),
-		from_finalizer("from_finalizer"),
-		to_finalizer("to_finalizer")
+		mem_dp("mem_dp"),
+		finalizer_dp("finalizer_dp")
 	{
-		from_mem.set_func([this, &fl](std::unique_ptr<payload> &&pl){
+		mem_dp.set_func([this, &fl](std::unique_ptr<payload> &&pl){
 			auto data = std::dynamic_pointer_cast<my_payload>(pl->data);
 #ifdef DBG
 			fl.print("got data\n");
@@ -97,13 +92,13 @@ public:
 #endif
 		});
 
-		from_finalizer.set_func([this](std::unique_ptr<payload> &&pl){
+		finalizer_dp.set_func([this](std::unique_ptr<payload> &&pl){
 			auto rd_pl = std::dynamic_pointer_cast<ready_payload>(pl->data);
 			if(!rd_pl){
 				return;
 			}
 			rd_pl->ready = (data.empty());
-			to_finalizer.send(std::move(pl));
+			finalizer_dp.send(std::move(pl));
 		});
 	}
 
@@ -116,43 +111,34 @@ public:
 	void start()override{
 		send_thr = std::thread([this](){
 			while(data.size() != 0){
-				to_mem.send(std::move(data.front()));
+				mem_dp.send(std::move(data.front()));
 				data.pop();
 			}
 		});
-		from_mem.start();
-		from_finalizer.start();
+		mem_dp.start();
+		finalizer_dp.start();
 	}
 };
 
 class memory:public module<memory>{
 	std::vector<uint8_t> mem;
 public:
-	std::vector<std::unique_ptr<target_port<memory>>> from_unit;
-	std::vector<std::unique_ptr<initiator_port<memory>>> to_unit;
+	std::vector<std::unique_ptr<dual_port<memory>>> unit_dps;
 	output_filter &fl;
-
-	target_port<memory> from_finalizer;
-	initiator_port<memory> to_finalizer;
+	dual_port<memory> finalizer_dp;
 
 	memory(const std::string &name, size_t bytes, size_t ports, output_filter &fl)
 		:module(name),
-		from_finalizer("from_finalizer"),
-		to_finalizer("to_finalizer"),
+		finalizer_dp("finalizer_dp"),
 		fl(fl)
 	{
 		mem.resize(bytes);
-		to_unit.reserve(ports);
-		for(size_t i=0; i<ports; i++){
-			auto name = std::string("to_unit")+std::to_string(i);
-			to_unit.emplace_back(new initiator_port<memory>(std::move(name)));
-		}
 
-		from_unit.reserve(ports);
+		unit_dps.reserve(ports);
 		for(size_t i=0; i<ports; i++){
-			auto name = std::string("from_unit")+std::to_string(i);
-			from_unit.emplace_back(new target_port<memory>(std::move(name)));
-			from_unit.back()->set_func([this, &fl, i](std::unique_ptr<payload> &&pl){
+			auto name = std::string("unit_dp")+std::to_string(i);
+			unit_dps.emplace_back(new dual_port<memory>(std::move(name)));
+			unit_dps.back()->set_func([this, &fl, i](std::unique_ptr<payload> &&pl){
 				auto pl_cast = std::dynamic_pointer_cast<my_payload>(pl->data);
 				if(!pl_cast){
 					return;
@@ -170,7 +156,7 @@ public:
 					fl.print(std::move(str));
 #endif
 					std::copy(mem.begin()+addr, mem.begin()+addr+len, pl_cast->data.begin());
-					to_unit.at(i)->send(std::move(pl));
+					unit_dps.at(i)->send(std::move(pl));
 				}else{
 					std::string str = "writing "+mes;
 #ifdef DBG
@@ -181,16 +167,18 @@ public:
 			});
 		}
 
-		from_finalizer.set_func([this](std::unique_ptr<payload> &&pl){
+		finalizer_dp.set_func([this](std::unique_ptr<payload> &&pl){
 			auto rd_pl = std::dynamic_pointer_cast<ready_payload>(pl->data);
 			if(!rd_pl){
 				return;
 			}
 			rd_pl->ready = true;
-			for(auto &p:from_unit){
-				rd_pl->ready &= (p->get_queue_size() == 0) && !p->processing();
+			for(auto &p:unit_dps){
+				rd_pl->ready &= (p->get_queue_size_in() == 0) &&
+					(p->get_queue_size_out() == 0) &&
+					!p->processing();
 			}
-			to_finalizer.send(std::move(pl));
+			finalizer_dp.send(std::move(pl));
 		});
 
 	}
@@ -201,31 +189,23 @@ class finalizer:public module<finalizer>{
 
 	std::vector<std::unique_ptr<std::atomic_bool>> flags;
 public:
-	std::vector<std::unique_ptr<initiator_port<finalizer>>> to_units;
-	std::vector<std::unique_ptr<target_port<finalizer>>> from_units;
-	initiator_port<finalizer> to_mem;
-	target_port<finalizer> from_mem;
+	std::vector<std::unique_ptr<dual_port<finalizer>>> units_dps;
+	dual_port<finalizer> mem_dp;
 
 	finalizer(const std::string &name, size_t ports)
 		:module(name),
-		to_mem("to_getter"),
-		from_mem("from_getter")
+		mem_dp("mem_dp")
 	{
 		flags.reserve(ports+1);
 		for(size_t i=0; i<ports+1; i++){
 			flags.emplace_back(new std::atomic_bool());
 		}
-		to_units.reserve(ports);
-		for(size_t i=0; i<ports; i++){
-			auto name = std::string("to_unit")+std::to_string(i);
-			to_units.emplace_back(new initiator_port<finalizer>(std::move(name)));
-		}
 
-		from_units.reserve(ports);
+		units_dps.reserve(ports);
 		for(size_t i=0; i<ports; i++){
-			auto name = std::string("from_unit")+std::to_string(i);
-			from_units.emplace_back(new target_port<finalizer>(std::move(name)));
-			from_units.back()->set_func([this, i](std::unique_ptr<payload> &&pl){
+			auto name = std::string("unit_dp")+std::to_string(i);
+			units_dps.emplace_back(new dual_port<finalizer>(std::move(name)));
+			units_dps.back()->set_func([this, i](std::unique_ptr<payload> &&pl){
 				auto pl_cast = std::dynamic_pointer_cast<ready_payload>(pl->data);
 				if(!pl_cast){
 					return;
@@ -233,7 +213,7 @@ public:
 				flags.at(i)->store(pl_cast->ready);
 			});
 		}
-		from_mem.set_func([this](std::unique_ptr<payload> &&pl){
+		mem_dp.set_func([this](std::unique_ptr<payload> &&pl){
 			auto pl_cast = std::dynamic_pointer_cast<ready_payload>(pl->data);
 			if(!pl_cast){
 				return;
@@ -243,14 +223,14 @@ public:
 	}
 
 	void start()override{
-		for(auto &p:from_units){
+		for(auto &p:units_dps){
 			p->start();
 		}
-		from_mem.start();
+		mem_dp.start();
 		bool ended;
 		do{
 			ended = true;
-			for(auto &p:to_units){
+			for(auto &p:units_dps){
 				auto pl = std::make_unique<payload>();
 				pl->data = std::make_shared<ready_payload>();
 				p->send(std::move(pl));
@@ -258,7 +238,7 @@ public:
 			{
 				auto pl = std::make_unique<payload>();
 				pl->data = std::make_shared<ready_payload>();
-				to_mem.send(std::move(pl));
+				mem_dp.send(std::move(pl));
 			}
 			for(const auto &val:flags){
 				ended &= val->load();
@@ -310,14 +290,11 @@ int main(int argc, char* argv[]){
 		std::string name = "unit"+std::to_string(i);
 		auto u = std::make_unique<unit>(name, f);
 		u->data = gen_data(mem_size, std::atoi(argv[3]));
-		e.tie(mem->to_unit[i], u->from_mem);
-		e.tie(u->to_mem, mem->from_unit[i]);
-		e.tie(fin->to_units[i], u->from_finalizer);
-		e.tie(u->to_finalizer, fin->from_units[i]);
+		e.tie(mem->unit_dps[i], u->mem_dp);
+		e.tie(fin->units_dps[i], u->finalizer_dp);
 		e.add_module(std::move(u));
 	}
-	e.tie(fin->to_mem, mem->from_finalizer);
-	e.tie(mem->to_finalizer, fin->from_mem);
+	e.tie(fin->mem_dp, mem->finalizer_dp);
 	e.add_module(std::move(mem));
 	e.add_module(std::move(fin));
 	e.start();

@@ -23,6 +23,10 @@ template<typename T>
 class port:public env_obj{
 	friend class env;
 	std::shared_ptr<conc_queue<std::unique_ptr<payload>>> q;
+
+	std::shared_ptr<conc_queue<std::unique_ptr<payload>>>& get_queue(){
+		return q;
+	};
 protected:
 	void clear_queue(){
 		q->clear();
@@ -134,6 +138,52 @@ public:
 		return _processing.load();
 	}
 
+};
+
+template<typename T>
+class dual_port:public port<T>{
+	friend class env;
+	target_port<T> trg;
+	initiator_port<T> init;
+public:
+	dual_port(const std::string &name)
+		:port<T>(name),
+		trg(name+"_trg"),
+		init(name+"_init")
+	{}
+
+	~dual_port(){
+		stop();
+	}
+
+	void stop(){
+		init.stop();
+		trg.stop();
+	}
+
+	void set_func(std::function<void(std::unique_ptr<payload>&&)> func){
+		trg.set_func(func);
+	}
+
+	void start(){
+		trg.start();
+	}
+
+	bool processing(){
+		return trg.processing();
+	}
+
+	size_t get_queue_size_in(){
+		return trg.get_queue_size();
+	}
+
+	size_t get_queue_size_out(){
+		return init.get_queue_size();
+	}
+
+	void send(std::unique_ptr<payload> &&pl){
+		init.send(std::move(pl));
+	}
 };
 
 }//namespace ev_sys

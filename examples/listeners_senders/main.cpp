@@ -72,20 +72,18 @@ class getter:public module<getter>{
 	}
 public:
 	target_port<getter> t1;
-	target_port<getter> from_finalizer;
-	initiator_port<getter> to_finalizer;
+	dual_port<getter> dp;
 
 	getter(const std::string &name)
 		:module(name),
 		t1("trg"),
-		from_finalizer("from_finalizer"),
-		to_finalizer("to_finalizer")
+		dp("finalizer_port")
 	{
 		t1.set_func([this](std::unique_ptr<payload> &&pl){
 			func(std::move(pl));
 		});
 
-		from_finalizer.set_func([this](std::unique_ptr<payload> &&pl){
+		dp.set_func([this](std::unique_ptr<payload> &&pl){
 			auto data = std::dynamic_pointer_cast<my_payload>(pl->data);
 			if(!data){
 				return;
@@ -95,7 +93,7 @@ public:
 			}else{
 				data->data.at(0) = 0x00;
 			}
-			to_finalizer.send(std::move(pl));
+			dp.send(std::move(pl));
 		});
 	}
 
@@ -116,13 +114,11 @@ public:
 class multi_getter:public module<multi_getter>{
 public:
 	std::vector<std::unique_ptr<target_port<multi_getter>>> in_ports;
-	target_port<multi_getter> from_finalizer;
-	initiator_port<multi_getter> to_finalizer;
+	dual_port<multi_getter> dp;
 
 	multi_getter(size_t size)
 		:module("mutli_getter"),
-		from_finalizer("from_finalizer"),
-		to_finalizer("to_finalizer")
+		dp("finalizer_port")
 	{
 		in_ports.reserve(size);
 		for(size_t i=0; i<size; i++){
@@ -135,7 +131,7 @@ public:
 			in_ports.emplace_back(std::move(port));
 		}
 
-		from_finalizer.set_func([this](std::unique_ptr<payload> &&pl){
+		dp.set_func([this](std::unique_ptr<payload> &&pl){
 			bool ended = true;
 			for(auto &p:in_ports){
 				ended &= p->ended();
@@ -146,7 +142,7 @@ public:
 			}else{
 				pl_cast->data.at(0) = 0x00;
 			}
-			to_finalizer.send(std::move(pl));
+			dp.send(std::move(pl));
 		});
 	}
 
@@ -172,15 +168,13 @@ class finalizer:public module<finalizer>{
 		return std::move(pl);
 	}
 public:
-	initiator_port<finalizer> to_getter;
-	target_port<finalizer> from_getter;
+	dual_port<finalizer> dp;
 
 	finalizer()
 		:module("finalizer"),
-		to_getter("to_getter"),
-		from_getter("from_getter")
+		dp("getter_port")
 	{
-		from_getter.set_func([this](std::unique_ptr<payload> &&pl){
+		dp.set_func([this](std::unique_ptr<payload> &&pl){
 			auto pl_cast = std::dynamic_pointer_cast<my_payload>(pl->data);
 			if(!pl_cast){
 				throw std::runtime_error("wrong payload");
@@ -195,10 +189,10 @@ public:
 
 	void start()override{
 		ended = false;
-		from_getter.start();
+		dp.start();
 		do{
 			auto pl = make_pl({0x00});
-			to_getter.send(std::move(pl));
+			dp.send(std::move(pl));
 			std::this_thread::sleep_for(std::chrono::milliseconds(5));
 		}while(!ended);
 	}
@@ -212,8 +206,7 @@ void test_one_to_one(){
 	auto gtr = std::make_unique<getter>("getter");
 	auto finlzr = std::make_unique<finalizer>();
 	e.tie(snd->p1, gtr->t1);
-	e.tie(finlzr->to_getter, gtr->from_finalizer);
-	e.tie(gtr->to_finalizer, finlzr->from_getter);
+	e.tie(finlzr->dp, gtr->dp);
 	e.add_module(std::move(snd));
 	e.add_module(std::move(gtr));
 	e.add_module(std::move(finlzr));
@@ -237,8 +230,7 @@ void test_many_to_one(){
 		e.add_module(std::move(senders[i]));
 	}
 	auto finlzr = std::make_unique<finalizer>();
-	e.tie(finlzr->to_getter, mul_get->from_finalizer);
-	e.tie(mul_get->to_finalizer, finlzr->from_getter);
+	e.tie(finlzr->dp, mul_get->dp);
 	e.add_module(std::move(mul_get));
 	e.add_module(std::move(finlzr));
 	e.start();
