@@ -13,16 +13,10 @@ jobs:
       run: sudo apt install cmake
     - name: сmake test
       run: |
-        mkdir build 
-        cd build
-        sudo сmake .. 
-        sudo make 
-        cd ..
-    - name: cd sys
-      run: cd kinda_system
+        sudo сmake .
+        sudo make
     - name: сmake sys
+      working-directory: kinda_system
       run: |
-        mkdir build
-        cd build
-        sudo сmake .. 
+        sudo сmake .
         sudo make
