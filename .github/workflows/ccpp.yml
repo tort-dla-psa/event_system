@@ -10,12 +10,8 @@ jobs:
     steps:
     - uses: actions/checkout@v1
     - name: сmake test
-      run: сmake
-    - name: make test
-      run: make
-    - name: cd
+      run: mkfdir build && cd build && сmake .. && make && cd ..
+    - name: cd sys
       run: cd kinda_system
     - name: сmake sys
-      run: сmake
-    - name: make sys
-      run: make
+      run: mkfdir build && cd build && сmake .. && make && cd ..
