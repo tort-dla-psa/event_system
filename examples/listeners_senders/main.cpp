@@ -3,6 +3,7 @@
 #include <thread>
 
 #include "ev_sys.h"
+#include "utils/finalizer.h"
 
 using namespace ev_sys;
 
@@ -156,57 +157,13 @@ public:
 	}
 };
 
-class finalizer:public module<finalizer>{
-	std::atomic_bool ended;
-
-	std::unique_ptr<payload> make_pl(std::vector<uint8_t> &&data){
-		auto my_pl = std::make_shared<my_payload>();
-		my_pl->src = get_name();
-		my_pl->data = std::move(data);
-		auto pl = std::make_unique<payload>();
-		pl->data = my_pl;
-		return std::move(pl);
-	}
-public:
-	dual_port<finalizer> dp;
-
-	finalizer()
-		:module("finalizer"),
-		dp("getter_port")
-	{
-		dp.set_func([this](std::unique_ptr<payload> &&pl){
-			auto pl_cast = std::dynamic_pointer_cast<my_payload>(pl->data);
-			if(!pl_cast){
-				throw std::runtime_error("wrong payload");
-			}
-			if(pl_cast->data.at(0) == 0x01){
-				this->ended = true;
-			}else{
-				this->ended = false;
-			}
-		});
-	}
-
-	void start()override{
-		ended = false;
-		dp.start();
-		do{
-			auto pl = make_pl({0x00});
-			dp.send(std::move(pl));
-			std::this_thread::sleep_for(std::chrono::milliseconds(5));
-		}while(!ended);
-	}
-
-	void stop()override{}
-};
-
 void test_one_to_one(){
 	env e;
 	auto snd = std::make_unique<sender>("sender");
 	auto gtr = std::make_unique<getter>("getter");
-	auto finlzr = std::make_unique<finalizer>();
+	auto finlzr = std::make_unique<finalizer>("finalizer",1);
 	e.tie(snd->p1, gtr->t1);
-	e.tie(finlzr->dp, gtr->dp);
+	e.tie(finlzr->dps[0], gtr->dp);
 	e.add_module(std::move(snd));
 	e.add_module(std::move(gtr));
 	e.add_module(std::move(finlzr));
@@ -229,8 +186,8 @@ void test_many_to_one(){
 		e.tie(senders[i]->p1, mul_get->in_ports[i]);
 		e.add_module(std::move(senders[i]));
 	}
-	auto finlzr = std::make_unique<finalizer>();
-	e.tie(finlzr->dp, mul_get->dp);
+	auto finlzr = std::make_unique<finalizer>("finalizer", 1);
+	e.tie(finlzr->dps[0], mul_get->dp);
 	e.add_module(std::move(mul_get));
 	e.add_module(std::move(finlzr));
 	e.start();

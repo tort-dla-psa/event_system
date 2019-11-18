@@ -8,6 +8,7 @@
 #include <random>
 #include <iomanip>
 #include "ev_sys.h"
+#include "utils/finalizer.h"
 
 using namespace ev_sys;
 
@@ -31,11 +32,6 @@ public:
 		addr(addr),
 		data(len)
 	{}
-};
-
-class ready_payload:public ev_sys::payload_data_holder{
-public:
-	bool ready;
 };
 
 class output_filter{
@@ -93,7 +89,7 @@ public:
 		});
 
 		finalizer_dp.set_func([this](std::unique_ptr<payload> &&pl){
-			auto rd_pl = std::dynamic_pointer_cast<ready_payload>(pl->data);
+			auto rd_pl = std::dynamic_pointer_cast<finalizer::ready_payload>(pl->data);
 			if(!rd_pl){
 				return;
 			}
@@ -168,7 +164,7 @@ public:
 		}
 
 		finalizer_dp.set_func([this](std::unique_ptr<payload> &&pl){
-			auto rd_pl = std::dynamic_pointer_cast<ready_payload>(pl->data);
+			auto rd_pl = std::dynamic_pointer_cast<finalizer::ready_payload>(pl->data);
 			if(!rd_pl){
 				return;
 			}
@@ -182,72 +178,6 @@ public:
 		});
 
 	}
-};
-
-class finalizer:public module<finalizer>{
-	std::atomic_bool ended;
-
-	std::vector<std::unique_ptr<std::atomic_bool>> flags;
-public:
-	std::vector<std::unique_ptr<dual_port<finalizer>>> units_dps;
-	dual_port<finalizer> mem_dp;
-
-	finalizer(const std::string &name, size_t ports)
-		:module(name),
-		mem_dp("mem_dp")
-	{
-		flags.reserve(ports+1);
-		for(size_t i=0; i<ports+1; i++){
-			flags.emplace_back(new std::atomic_bool());
-		}
-
-		units_dps.reserve(ports);
-		for(size_t i=0; i<ports; i++){
-			auto name = std::string("unit_dp")+std::to_string(i);
-			units_dps.emplace_back(new dual_port<finalizer>(std::move(name)));
-			units_dps.back()->set_func([this, i](std::unique_ptr<payload> &&pl){
-				auto pl_cast = std::dynamic_pointer_cast<ready_payload>(pl->data);
-				if(!pl_cast){
-					return;
-				}
-				flags.at(i)->store(pl_cast->ready);
-			});
-		}
-		mem_dp.set_func([this](std::unique_ptr<payload> &&pl){
-			auto pl_cast = std::dynamic_pointer_cast<ready_payload>(pl->data);
-			if(!pl_cast){
-				return;
-			}
-			flags.back()->store(pl_cast->ready);
-		});
-	}
-
-	void start()override{
-		for(auto &p:units_dps){
-			p->start();
-		}
-		mem_dp.start();
-		bool ended;
-		do{
-			ended = true;
-			for(auto &p:units_dps){
-				auto pl = std::make_unique<payload>();
-				pl->data = std::make_shared<ready_payload>();
-				p->send(std::move(pl));
-			}
-			{
-				auto pl = std::make_unique<payload>();
-				pl->data = std::make_shared<ready_payload>();
-				mem_dp.send(std::move(pl));
-			}
-			for(const auto &val:flags){
-				ended &= val->load();
-			}
-			std::this_thread::sleep_for(std::chrono::milliseconds(5));
-		}while(!ended);
-	}
-
-	void stop()override{}
 };
 
 std::queue<std::unique_ptr<payload>> gen_data(size_t mem_size, size_t count){
@@ -285,16 +215,16 @@ int main(int argc, char* argv[]){
 	size_t mem_size = std::atoi(argv[1]);
 	size_t ports = std::atoi(argv[2]);
 	auto mem = std::make_unique<memory>("ddr1", mem_size, ports,f);
-	auto fin = std::make_unique<finalizer>("finalizer", ports);
+	auto fin = std::make_unique<finalizer>("finalizer", ports+1);
 	for(size_t i=0; i<ports; i++){
 		std::string name = "unit"+std::to_string(i);
 		auto u = std::make_unique<unit>(name, f);
 		u->data = gen_data(mem_size, std::atoi(argv[3]));
 		e.tie(mem->unit_dps[i], u->mem_dp);
-		e.tie(fin->units_dps[i], u->finalizer_dp);
+		e.tie(fin->dps[i], u->finalizer_dp);
 		e.add_module(std::move(u));
 	}
-	e.tie(fin->mem_dp, mem->finalizer_dp);
+	e.tie(mem->finalizer_dp, fin->dps.back());
 	e.add_module(std::move(mem));
 	e.add_module(std::move(fin));
 	e.start();
