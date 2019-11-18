@@ -1,6 +1,7 @@
 #pragma once
 #include <memory>
 #include <functional>
+#include <thread>
 #include "conc_queue.h"
 #include "env_obj.h"
 
